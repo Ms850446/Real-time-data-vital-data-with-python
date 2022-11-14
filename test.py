@@ -121,8 +121,8 @@ def get_r_chart(meanOfR,fig=None):
     lcl=0.41*meanOfR
     cl =meanOfR
     if fig is not None:
-        fig.add_hline(y=meanOfR+0.18*meanOfR, line_width=3, line_dash="dashdot", line_color="green")
-        fig.add_hline(y=meanOfR-0.18*meanOfR, line_width=3, line_dash='dashdot', line_color='red')
+        fig.add_hline(y=ucl, line_width=3, line_dash="dashdot", line_color="green")
+        fig.add_hline(y=lcl, line_width=3, line_dash='dashdot', line_color='red')
         fig.add_hline((meanOfR), line_color='yellow')
     return ucl ,lcl,cl 
 
@@ -164,7 +164,7 @@ with st.container():
             beebMode=st.sidebar.radio('Beeb with :',('no Beeb','X-Chart','R-Chart'))
             i = 0
             for index in range(0, len(magnitude)-10, 10):
-                chart.add_rows(x=time[index:index+10], y=magnitude[index:index+10])
+                chart.add_rows(y=magnitude[index:index+10])
                 if beebMode=='X-Chart' and (magnitude[index]>uclX or magnitude[index<lclX]):
                     win32api.Beep(700,60)
                 elif beebMode=='R-Chart' and(magnitude[index]>ucl or magnitude[index]<lcl) :
