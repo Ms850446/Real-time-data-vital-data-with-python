@@ -8,17 +8,7 @@ import streamlit as st
 import time as t
 from datetime import datetime
 import altair as alt
-def plot_animation(df):
-    brush = alt.selection_interval()
-    chart1 = alt.Chart(df).mark_line().encode(
-            x=alt.X('time', axis=alt.Axis(title='time')),
-            y=alt.Y('value', axis=alt.Axis(title='value')),
-        ).properties(
-             width=900,
-            height=100
-        ).add_selection(
-            brush
-        )
+import win32api
 
 
 st.set_page_config(layout='wide')
@@ -83,7 +73,6 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-
 if 'arduino' in st.session_state:
     st.session_state.arduino.close()
 
@@ -106,7 +95,36 @@ def cb_sig2_active():
     st.session_state.cb_sig2 = True
 
 
+def get_x_chart (magnitude ,fig =None):
+            meanOfMagnitude=np.mean(magnitude)
+            meanOfR=0
+            i=1
+            length =len(magnitude)-len(magnitude)%20
+            for index in range(0,length-20,20):
+                max =np.max(magnitude[index:index+21])
+                min =np.min(magnitude[index:index+21])
+                meanOfR+=(max-min)
+                i+=1
+            numberOfR=int(len(magnitude)/20)
+            meanOfR=meanOfR/numberOfR
+            if fig is  not None:
+                fig.add_hline(y=meanOfMagnitude+0.18*meanOfR, line_width=3, line_dash="dashdot", line_color="green")
+                fig.add_hline(y=meanOfMagnitude-0.18*meanOfR, line_width=3, line_dash='dashdot', line_color='red')
+                fig.add_hline((meanOfMagnitude), line_color='yellow',line_width=3,line_dash='solid')
+            ucl=meanOfMagnitude+0.18*meanOfR
+            lcl=meanOfMagnitude-0.18*meanOfR
+            cl=meanOfMagnitude
+            return ucl,lcl,cl,meanOfR
 
+def get_r_chart(meanOfR,fig=None):
+    ucl =1.59*meanOfR
+    lcl=0.41*meanOfR
+    cl =meanOfR
+    if fig is not None:
+        fig.add_hline(y=meanOfR+0.18*meanOfR, line_width=3, line_dash="dashdot", line_color="green")
+        fig.add_hline(y=meanOfR-0.18*meanOfR, line_width=3, line_dash='dashdot', line_color='red')
+        fig.add_hline((meanOfR), line_color='yellow')
+    return ucl ,lcl,cl 
 
 
 with st.container():
@@ -119,7 +137,7 @@ with st.container():
 
 
     right_up_col, left_up_col = st.columns([3, 1])
-    uploaded_csv = left_up_col.file_uploader("Upload your CSV file", type={"csv", "txt", "csv.xls"},
+    uploaded_csv = st.sidebar.file_uploader("Upload your CSV file", type={"csv", "txt", "csv.xls"},
                                              label_visibility='collapsed', key="file")
 
    
@@ -129,47 +147,30 @@ with st.container():
         time = csv_data[:, 0]
         magnitude = csv_data[:, 1]
         if cb_sig1:
-            
-            meanOfMagnitude=np.mean(magnitude)
-            meanOfR=0
-            i=1
-            length =len(magnitude)-len(magnitude)%20
-            for index in range(0,length-20,20):
-                max =np.max(magnitude[index:index+1])
-                min =np.min(magnitude[index:index+1])
-                meanOfR+=(max-min)
-            numberOfR=len(magnitude)/20
-            meanOfR=meanOfR/numberOfR
-            df=pd.DataFrame({'time':time,'value':magnitude},columns=['time','value'])
-            lines = plot_animation(df)
-            line_plot = st.altair_chart(lines)
-            col1, col2 = st.columns(2)
-            start_btn = col1.button('Start')
-            if start_btn:
-                N = df.shape[0]  # number of elements in the dataframe
-                burst = 1  # number of elements (months) to add to the plot
-                size = burst  # size of the current dataset
-            for i in range(1, N):
-                step_df =df.iloc[0:size]
-                lines = plot_animation(step_df)
-                line_plot = line_plot.altair_chart(lines)
-                size = i + burst
-                if size >= N:
-                    size = N - 1
-
-            fig_sig1 = px.line(uploaded_df, x=time,
-                               y=magnitude, title="Signal2")
-            fig_sig1.add_hline(meanOfMagnitude+0.577*meanOfR, color='red', linestyle='dashed')
-            fig_sig1.add_hline(meanOfMagnitude-0.577*meanOfR, color='red', linestyle='dashed')
-            fig_sig1.add_hline((meanOfMagnitude), color='blue')
-
             chart = st.line_chart(
                 np.zeros(shape=(1, 1)), height=500, width=1200, use_container_width=False)
-
+            df=pd.DataFrame({'time':time,'value':magnitude},columns=['time','value'])
+            
+            fig_sig1 = px.line(x=time ,y=magnitude,labels={'x': 'Time(s)', 'y': 'Amplitude(mV)'},height=500,title='X_chart')
+            uclX,lclX,clX,meanOfR=get_x_chart(magnitude,fig=fig_sig1)
+            
+            col1,col2=st.columns(2)
+            
+            col1.plotly_chart(fig_sig1,use_container_width=True,label ='X-Chart')
+            
+            fig1_r_chart= px.line(x=time ,y=magnitude,labels={'x': 'Time(s)', 'y': 'Amplitude(mV)'},height=500,title='R_chart')
+            ucl,lcl,cl=get_r_chart(meanOfR,fig=fig1_r_chart)
+            col2.plotly_chart(fig1_r_chart)
+            beebMode=st.sidebar.radio('Beeb with :',('no Beeb','X-Chart','R-Chart'))
             i = 0
-            for index in range(0, len(magnitude), 10):
-                chart.add_rows(magnitude[i*10:10*(i+1)])
-                t.sleep(2)
+            for index in range(0, len(magnitude)-10, 10):
+                chart.add_rows(x=time[index:index+10], y=magnitude[index:index+10])
+                if beebMode=='X-Chart' and (magnitude[index]>uclX or magnitude[index<lclX]):
+                    win32api.Beep(700,60)
+                elif beebMode=='R-Chart' and(magnitude[index]>ucl or magnitude[index]<lcl) :
+                    win32api.Beep(700,60)
+                else:
+                    t.sleep(0.05)
                 i += 1
 
 
@@ -182,7 +183,7 @@ with st.container():
                                y=magnitude, title="Signal2")
             chart = st.line_chart(
                 np.zeros(shape=(1, 1)), height=500, width=1200, use_container_width=False)
-
+            # st.line_chart(fig_sig2,height=500)
             i = 0
             for index in range(0, len(magnitude), 10):
                 chart.add_rows(magnitude[i*10:10*(i+1)])
@@ -244,76 +245,6 @@ with st.container():
 
             temp_record.to_csv('temperature_record.csv', index=False)
             
-
-
-
-
-
-
-# import serial
-# import time
-# import streamlit as st
-# import plotly.graph_objects as go
-# import plotly.express as px
-# from datetime import datetime
-# import pandas as pd
-
-# arduino = serial.Serial(port='COM16', baudrate=9600, parity=serial.PARITY_NONE,stopbits=serial.STOPBITS_ONE,bytesize=serial.EIGHTBITS) #Change the COM port to whichever port your arduino is in
-# gauge_placeholder = st.empty()
-# chart_placeholder = st.empty()
-
-# def temp_gauge(temp,previous_temp,gauge_placeholder):
-#     fig = go.Figure(go.Indicator(
-#         domain = {'x': [0, 1], 'y': [0, 1]},
-#         value = temp,
-#         mode = "gauge+number+delta",
-#         title = {'text': "Temperature (°C)"},
-#         delta = {'reference': previous_temp},
-#         gauge = {'axis': {'range': [0, 40]}}))
-
-#     gauge_placeholder.write(fig)
-
-# def temp_chart(df,chart_placeholder):
-#     fig = px.line(df, x="Time", y="Temperature (°C)", title='Temperature vs. time')
-#     chart_placeholder.write(fig)
-
-# if arduino.isOpen() == False:
-#     arduino.open()
-
-# i = 0
-# previous_temp = 0
-# temp_record = pd.DataFrame(data=[],columns=['Time','Temperature (°C)'])
-
-# while i < 500: #Change number of iterations to as many as you need
-#     now = datetime.now()
-#     current_time = now.strftime("%H:%M:%S")
-
-#     try:
-#         temp = round(float(arduino.readline().decode().strip('\r\n')),1)
-#     except:
-#         temp=0
-#         pass
-
-#     temp_record.loc[i,'Time'] = current_time
-#     temp_record.loc[i,'Temperature (°C)'] = temp
-
-#     temp_gauge(temp,previous_temp,gauge_placeholder)
-#     temp_chart(temp_record,chart_placeholder)
-#     time.sleep(1)
-#     i += 1
-#     previous_temp = temp
-
-# temp_record.to_csv('temperature_record.csv',index=False)
-
-# if arduino.isOpen() == True:
-#     arduino.close()
-
-
-
-
-
-
-
 
 
 
